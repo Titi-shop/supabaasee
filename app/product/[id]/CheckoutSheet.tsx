@@ -177,20 +177,59 @@ export default function CheckoutSheet({ open, onClose, product }: Props) {
   () => Number((unitPrice * quantity).toFixed(6)),
   [unitPrice, quantity]
 );
+   const previewOrder = async () => {
+  try {
+    const token = await getPiAccessToken();
+
+    const res = await fetch("/api/orders/preview", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        product_id: item!.id,
+        quantity,
+      }),
+    });
+
+    const data = await res.json();
+
+    console.log("🟡 PREVIEW RESULT:", data);
+
+    if (!res.ok) {
+      alert(data.error || "Không thể đặt hàng");
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("❌ PREVIEW ERROR:", err);
+    alert("Preview lỗi");
+    return false;
+  }
+};
 
   /* =========================
      PAY WITH PI
   ========================= */
 
   const handlePay = async () => {
-    if (!window.Pi || !piReady || !user || !shipping || !item) {
-      alert(t.transaction_failed);
-      return;
-    }
+  console.log("🟡 PAY START");
 
-    if (processing) return;
+  if (!window.Pi || !piReady || !user || !shipping || !item) {
+    console.log("🔴 INVALID STATE");
+    alert(t.transaction_failed);
+    return;
+  }
 
-    setProcessing(true);
+  if (processing) return;
+
+  // 🔥 PREVIEW CHECK
+  const ok = await previewOrder();
+  if (!ok) return;
+
+  setProcessing(true);
 
     try {
       await window.Pi.createPayment(
@@ -250,6 +289,12 @@ export default function CheckoutSheet({ open, onClose, product }: Props) {
           /* COMPLETE */
 
           onReadyForServerCompletion: async (paymentId, txid) => {
+  console.log("🟡 COMPLETE START", {
+    paymentId,
+    txid,
+    product_id: product.id,
+    quantity,
+  });
 
   const token = await getPiAccessToken();
 
@@ -267,19 +312,27 @@ export default function CheckoutSheet({ open, onClose, product }: Props) {
       total,
       shipping,
       user: {
-  pi_uid: user.pi_uid
-}
+        pi_uid: user.pi_uid,
+      },
     }),
   });
 
+  const data = await res.json();
+
+  console.log("🟢 COMPLETE RESULT:", data);
+
   if (!res.ok) {
+    console.error("🔴 COMPLETE FAILED:", data);
     setProcessing(false);
-    alert("Complete thất bại");
+    alert(data.error || "Complete thất bại");
     return;
   }
 
+  console.log("🟢 ORDER SUCCESS");
+
   onClose();
   router.push("/customer/pending");
+};
 },
 
           onCancel: () => setProcessing(false),
